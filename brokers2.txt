@@ -47,12 +47,12 @@ fwd_gfw=ifelse(sum(fwd_gf$V5)>0,sum(fwd_gf$V5),1)
 
 if(fwd_icw==0 & fwd_trw == 0){fwd_icw=1;fwd_trw=1}
 #Curva Fwd:
-curva_gfw=fwd_gf$V2;curva_gfw[which(fwd_gf$V2!=0)]=fwd_gfw #GFI solo afecta los nodos donde presentÛ cotizaciÛn
-#el de la metodologia vieja## fwd_mid=(fwd_ic$V2*fwd_icw+fwd_tr$V2*fwd_trw+fwd_gf$V2*fwd_gfw)/(fwd_icw+fwd_trw+curva_gfw)
-fwd_bid=apply(cbind(fwd_ic$V3,fwd_tr$V3),1,FUN="max")
-fwd_ask=apply(cbind(fwd_ic$V4,fwd_tr$V4),1,FUN="min")
+curva_gfw=fwd_gf$V2;curva_gfw[which(fwd_gf$V2!=0)]=fwd_gfw #GFI solo afecta los nodos donde present√≥ cotizaci√≥n
+#se incluye a tradition para calcular bid y ask solo los nodos cotizados
+fwd_bid=apply(cbind(fwd_ic$V3,fwd_tr$V3,ifelse(fwd_gf$V3==0,-1000,fwd_gf$V3)),1,FUN="max")
+fwd_ask=apply(cbind(fwd_ic$V4,fwd_tr$V4,ifelse(fwd_gf$V4==0,1000,fwd_gf$V4)),1,FUN="min")
 #nuevo calculo del mid
-fwd_mid=mean(c(fwd_bid,fwd_ask))
+fwd_mid=apply(cbind(fwd_bid,fwd_ask),1,FUN="mean")
 fwd_consol=round(data.frame(V1=fwd_ic$V1,V2=fwd_mid,V3=fwd_bid,V4=fwd_ask),2)
 res_fwd=data.frame(fwd_consol,fwd_ic$V2,fwd_tr$V2,fwd_gf$V2);colnames(res_fwd)=c("DAYS","LAST", "BID", "ASK", "ICAP", "TRAD", "GFI")
 write.table(fwd_consol[fwd_consol$V1<fwdval,],"In/Fwd_USDCOP_In.txt", col.names=F, row.names=F)
@@ -69,7 +69,7 @@ swapi_ic=read.table(paste0("In/Brokers/Swap_IBR_ICAP_2_",fecha,".csv"), header =
 
 res_ibrTr=matrix(rep(0,length(swapi_ic$V1)*3),ncol=3)
 
-#2.1)Resumen de Quotes. (Actualmente solo Tradition nos reporta esta informaciÛn por un archivo del FTP):
+#2.1)Resumen de Quotes. (Actualmente solo Tradition nos reporta esta informaci√≥n por un archivo del FTP):
 hora_fin=hora_corte
 hora_ini=hora_corte-300
 #hora_fin=strptime("12:55:00", format="%H:%M:%S", tz="")
@@ -86,7 +86,7 @@ swapi_trqt=tr_quote[swapi_trqtPos,c(12,15,16)]#Se crea matriz con Tenor, Bid y A
 colnames(swapi_trqt)=c("Tenor", "Bid", "Ask")
 swapi_trTenor=as.character(unique(swapi_trqt$Tenor))
 swapi_trqtLast=matrix(rep(0, length(swapi_trTenor)*3), ncol=3)
-postrad=sort(match(swapi_trTenor, tenors$TRAD))#PosiciÛn de tenors ordenados
+postrad=sort(match(swapi_trTenor, tenors$TRAD))#Posici√≥n de tenors ordenados
 swapi_trTenor=as.character(tenors$TRAD[postrad])#Tenors ordenados de mayor a menor
 
 if(length(swapi_trTenor)>0){
@@ -145,9 +145,9 @@ print(res_ibrTrades)
 #2.3)Resumen Curva de Cierre
 
 #swapi_trpos=which(tr_close$SUBYACENTE=="IBR" & !is.na(tr_close$NIVEL.BID))
-swapi_trpos=integer()#No se tiene en cuenta closing de IBR de tradition, sÛlo quotes.
+swapi_trpos=integer()#No se tiene en cuenta closing de IBR de tradition, s√≥lo quotes.
 swapi_tr=data.frame(V1=tr_close$FECHA.DE.LIQUIDACION[swapi_trpos], V2=0.005*(tr_close$NIVEL.BID[swapi_trpos]+tr_close$NIVEL.ASK[swapi_trpos]), V3=tr_close$NIVEL.BID[swapi_trpos],V4=tr_close$NIVEL.ASK[swapi_trpos])
-swapi_trTenor=which((swapi_tr$V4-swapi_tr$V3)<=0.09)#Tenor que cumplen el criterio de MENOS de 10 B·sicos
+swapi_trTenor=which((swapi_tr$V4-swapi_tr$V3)<=0.09)#Tenor que cumplen el criterio de MENOS de 10 B√°sicos
 swapi_tr=swapi_tr[swapi_trTenor,]
 #swapi_tr=swapi_tr[c(match(swapi_trTenor, as.character(swapi_tr$V1)),),]#Se eliminan los tenors que no cumplen los criterios
 swapi_tr_last=swapi_tr$V2[c(match(swapi_ic$V1,swapi_tr$V1))];swapi_tr_last[is.na(swapi_tr_last)]=0#Se ajusta al orden de los tenor de ICAP
@@ -171,7 +171,7 @@ swapi_trqtLast[tenor_qt,c(2:4)]=swapi_tr[,c(2:4)]#Se reemplazan los quotes por e
 if(length(tenor_noqt)!=0){
 swapi_trqtLast[tenor_qt,c(2:4)]=swapi_tr[-tenor_noqt,c(2:4)]#Se reemplazan los quotes por el closing
 swapi_trqtLast=rbind(swapi_trqtLast,swapi_trnoq)#se incluyen tenors con closing pero sin quotes
-postrad=match(swapi_trqtLast$Tenor, tenors$TRAD)#PosiciÛn de tenors en tenors$TRAD
+postrad=match(swapi_trqtLast$Tenor, tenors$TRAD)#Posici√≥n de tenors en tenors$TRAD
 swapi_trqtLast=swapi_trqtLast[order(data.frame(swapi_trqtLast,pos=postrad)$pos),]
 }
 print("RESUMEN QUOTES DE TRADITION", quote=F)
@@ -195,13 +195,13 @@ lic=length(swapi_consolm);
 if(length(posT)>0 & (any(diff(posT)>1)|max(posT)!=lic)){
 posTi=posT[(posT<max(c(1:lic)[-posT]))]#solo posiciones que se puedan interpolar INTERPOLAR.
 swapi_consolm[posTi]=round(approx(x=swapi_ic$V2[-posTi], y=swapi_consolm[-posTi], xout=swapi_ic$V2[posTi])$y,5)
-swapi_consolm[posT[posT>max(posTi)]]=swapi_ic$V3[posT[posT>max(posTi)]]}else{#En los extremos usamos informaciÛn de ICAP
-swapi_consolm[posT]=swapi_ic$V3[posT]}#En los extremos usamos informaciÛn de ICAP
+swapi_consolm[posT[posT>max(posTi)]]=swapi_ic$V3[posT[posT>max(posTi)]]}else{#En los extremos usamos informaci√≥n de ICAP
+swapi_consolm[posT]=swapi_ic$V3[posT]}#En los extremos usamos informaci√≥n de ICAP
 
 swapi_TM=rep("M",length(swapi_consolm));swapi_TM[posT]="T"
 swapi_consol=data.frame(V1=swapi_ic$V2, V2=round(swapi_consolm,5), V3=swapi_TM)
 swapi_consol_camara=data.frame(V1=swapi_ic$V2, V2=round(swapi_consolm,16), V3=swapi_TM)
-if(ibr_adjust==1){#Ajuste para cambiar los nodos teÛricos de acuerdo a las variaciones de un dÌa a otro. Se reescribe el archivo Swap_IBR_Nodos
+if(ibr_adjust==1){#Ajuste para cambiar los nodos te√≥ricos de acuerdo a las variaciones de un d√≠a a otro. Se reescribe el archivo Swap_IBR_Nodos
   pos_ibr=which(ResYest$Curva=="IBR")
   swpi_curva_ant=data.frame(V1=as.numeric(as.character(ResYest$Dias[pos_ibr])),V2=as.numeric(as.character(ResYest$Mid[pos_ibr])))
   swapi_consol=adjust_curve(date_ini=fecha_ini, curve_t1=swapi_consol, curve_t0=swpi_curva_ant, tk_st=c("ON"))
@@ -307,16 +307,16 @@ swapil_ic=read.table(paste0("In/Brokers/Swap_IBRLIBOR_ICAP_2_",fecha,".csv"), he
 #Quotes Tradition:
 swapil_trpos=which(tr_close$SUBYACENTE=="IBRLIBOR" & !is.na(tr_close$NIVEL.BID))
 swapil_tr=data.frame(V1=tenors$ICAP[match(as.character(tr_close$FECHA.DE.LIQUIDACION[swapil_trpos]), tenors$TRAD)], V2=0.00005*(tr_close$NIVEL.BID[swapil_trpos]+tr_close$NIVEL.ASK[swapil_trpos]), V3=tr_close$NIVEL.BID[swapil_trpos]/10000,V4=tr_close$NIVEL.ASK[swapil_trpos]/10000)
-swapil_trTenor=which((swapil_tr$V4-swapil_tr$V3)<=0.0050)#Tenor que cumplen el criterio de MENOS de 50 B·sicos
+swapil_trTenor=which((swapil_tr$V4-swapil_tr$V3)<=0.0050)#Tenor que cumplen el criterio de MENOS de 50 B√°sicos
 swapil_tr=swapil_tr[swapil_trTenor,]
 
-#Se incorporan Quotes Tradition. (Actualmente solo Tradition nos reporta esta informaciÛn por un archivo del FTP):
+#Se incorporan Quotes Tradition. (Actualmente solo Tradition nos reporta esta informaci√≥n por un archivo del FTP):
 swapil_trqtPos=which(as.character(tr_quote$FECHA.DE.LIQUIDACION) %in% tenors$TRAD & tr_quote$SUBYACENTE=="BASIS IBR/LIBOR" & tr_quote$NOMINAL>=5 & tr_quote$HORA.INICIO<=hora_ini & (tr_quote$HORA.FIN>=hora_fin | is.na(tr_quote$HORA.FIN)));
 swapil_trqt=tr_quote[swapil_trqtPos,c(12,15,16)]#Se crea matriz con Tenor, Bid y Ask
 colnames(swapil_trqt)=c("Tenor", "Bid", "Ask")
 swapil_trTenor=as.character(unique(swapil_trqt$Tenor))
 swapil_trqtLast=matrix(rep(0, length(swapil_trTenor)*3), ncol=3)
-postrad=sort(match(swapil_trTenor, tenors$TRAD))#PosiciÛn de tenors ordenados
+postrad=sort(match(swapil_trTenor, tenors$TRAD))#Posici√≥n de tenors ordenados
 swapil_trTenor=as.character(tenors$TRAD[postrad])#Tenors ordenados de mayor a menor
 
 if(length(swapil_trTenor)>0 & any(is.na(match(swapil_trTenor,swapil_tr$V1)))){
@@ -412,7 +412,7 @@ if(length(swapil_trades$Tenor)>0){
 pos_il=which(ResYest$Curva=="LIBORIBR")
 swpil_curva_ant=data.frame(V1=as.numeric(as.character(ResYest$Dias[pos_il])),V2=as.numeric(as.character(ResYest$Mid[pos_il])))
 swapil_consol$V2[swapil_TM=="T"]=swpil_curva_ant$V2[swapil_TM=="T"]
-#InterpolaciÛn plazos menores a 18M_
+#Interpolaci√≥n plazos menores a 18M_
 posil_cp_m=which(swapil_TM=="M" & swapil_consol$V1<fwdval)
 posil_cp_t=which(swapil_TM=="T" & swapil_consol$V1<fwdval)
 if(length(posil_cp_t)>0 & length(posil_cp_m)>=2 & min(posil_cp_t)>min(posil_cp_m)){
@@ -420,7 +420,7 @@ if(length(posil_cp_t)>0 & length(posil_cp_m)>=2 & min(posil_cp_t)>min(posil_cp_m
   swapil_consol[posil_cp_t,c("V3","V4")]=swapil_consol$V2[posil_cp_t]
 }
 
-if(ibrlibor_adjust==1 & sum(swapil_TM=="M")>0 & swapil_consol$V1[max(which(swapil_TM=="M"))]>(360*5)){#Ajuste para cambiar los nodos teÛricos de acuerdo a las variaciones de un dÌa a otro. SÛlo para nodos de largo plazo.
+if(ibrlibor_adjust==1 & sum(swapil_TM=="M")>0 & swapil_consol$V1[max(which(swapil_TM=="M"))]>(360*5)){#Ajuste para cambiar los nodos te√≥ricos de acuerdo a las variaciones de un d√≠a a otro. S√≥lo para nodos de largo plazo.
   swapil_consol_adj=adjust_curve(date_ini=fecha_ini, curve_t1=data.frame(swapil_consol[,c(1,2)],V3=swapil_TM), curve_t0=swpil_curva_ant, tk_st=c("ON"), min_days=fwdval)
   swapil_consol[,c(1,2)]=round(swapil_consol_adj[,c(1,2)],1)
 }
@@ -482,7 +482,7 @@ write.table(swapd_tr[,c(1:2)],"In/Swap_DTF_In.txt", col.names=F, row.names=F)
 
 #print(opc_cop_consol)#Matriz consolidada con info de ICAP y GFI.
 
-#Matriz de variaciones y matriz consolidad con informaciÛn del dÌa anterior:
+#Matriz de variaciones y matriz consolidad con informaci√≥n del d√≠a anterior:
 #opc_cop_var=data.frame(Tenor=opc_cop_consol$Tenor, d=opc_cop_consol$d,opc_cop_consol[,-c(1,2)]-opc_last[,-c(1,2)])
 #pos0_cop=which(opc_cop_consol==0, arr.ind=T)
 
@@ -497,7 +497,7 @@ write.table(swapd_tr[,c(1:2)],"In/Swap_DTF_In.txt", col.names=F, row.names=F)
 #Matriz Mid Delta:
 
 
-#Cuando las variaciones son muy sinificativas se realiza una interpolaciÛn para que los plazos intermedios no estÈn rezagados. 
+#Cuando las variaciones son muy sinificativas se realiza una interpolaci√≥n para que los plazos intermedios no est√©n rezagados. 
 #if (recal_opc_cop==1){
 #  for(i in c(1:dim(pos0_cop)[1])){
 #  opc_cop_consol[pos0_cop[i,1], pos0_cop[i,2]]=approx(c(opc_cop_consol$d[pos0_cop[i-1,1]],opc_cop_consol$d[pos0_cop[i+1,1]),,)}  
@@ -512,7 +512,7 @@ swapiu_ic=read.table(paste0("In/Brokers/Swap_IBRUVR_ICAP_2_",fecha,".csv"), head
 
 swapiu_trpos=which(tr_close$SUBYACENTE=="UVRIBR" & !is.na(tr_close$NIVEL.BID))
 swapiu_tr=data.frame(V1=tenors$ICAP[match(as.character(tr_close$FECHA.DE.LIQUIDACION[swapiu_trpos]), tenors$TRAD)], V2=0.005*(tr_close$NIVEL.BID[swapiu_trpos]+tr_close$NIVEL.ASK[swapiu_trpos]), V3=tr_close$NIVEL.BID[swapiu_trpos]/100,V4=tr_close$NIVEL.ASK[swapiu_trpos]/100)
-swapiu_trTenor=which((swapiu_tr$V4-swapiu_tr$V3)<=0.0025)#Tenor que cumplen el criterio de MAXIMO 25 B·sicos
+swapiu_trTenor=which((swapiu_tr$V4-swapiu_tr$V3)<=0.0025)#Tenor que cumplen el criterio de MAXIMO 25 B√°sicos
 swapiu_tr=swapiu_tr[swapiu_trTenor,]
 swapiu_trb=swapiu_tr$V3[match(swapiu_ic$V1,swapiu_tr$V1)];swapiu_trb[is.na(swapiu_trb)]=-1
 swapiu_tra=swapiu_tr$V4[match(swapiu_ic$V1,swapiu_tr$V1)];swapiu_tra[is.na(swapiu_tra)]=1
@@ -534,7 +534,7 @@ swapiu_consol=data.frame(V1=swapiu_ic[,2],V2=swapiu_consolm, V3=swapiu_consolb, 
 pos_ant=which(swapiu_consol$V3==-1 & swapiu_consol$V4==1)
 swapiu_TM=rep("M",length(swapiu_consolm));swapiu_TM[pos_ant]="T"
 
-if(ibruvr_adjust==1){#Ajuste para cambiar los nodos teÛricos de acuerdo a las variaciones de un dÌa a otro. Se reescribe el archivo Swap_IBR_Nodos
+if(ibruvr_adjust==1){#Ajuste para cambiar los nodos te√≥ricos de acuerdo a las variaciones de un d√≠a a otro. Se reescribe el archivo Swap_IBR_Nodos
   pos_iu=which(ResYest$Curva=="IBRUVR")
   swpiu_curva_ant=data.frame(V1=as.numeric(as.character(ResYest$Dias[pos_iu])),V2=as.numeric(as.character(ResYest$Mid[pos_iu])))
   min_days_iu=100
@@ -587,4 +587,3 @@ if(any(BASE1[,"id"]=="SWAPIBRUVRN")){
   colnames(BASE_in)=c("fecha","id","Nodo","valor","mid","bid","ask")
   BASE1=rbind(BASE1,BASE_in)
 }
-
