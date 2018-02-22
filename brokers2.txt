@@ -1,0 +1,590 @@
+fecha_trad=format(fecha_ini,format="%d%m%Y")
+icap=read.csv(paste0("In/Brokers/HECHOS_ICAPCO_DERIVADOS_", fecha, ".csv"), header = FALSE, sep=";", colClasses=c(rep("character",11), rep("numeric",3),rep("character",2)))
+tr_close=read.csv(paste0("In/Brokers/Tradition_Colombia_Report_Closing", fecha_trad, ".csv"), header = TRUE, sep=",", fill=T)
+tr_quote=read.csv(paste0("In/Brokers/Tradition_Colombia_Report_Quotes", fecha_trad, ".csv"), header = TRUE, sep=",", fill=T)
+tr_trade=read.csv(paste0("In/Brokers/Tradition_Colombia_Report_Trades", fecha_trad, ".csv"), header = TRUE, sep=",", fill=T)
+gfi_close=read.csv(paste0("In/Brokers/hechos_GFI_derivados-", fecha, ".csv"), header = FALSE, sep=",", fill=T)
+gfi_quote=read.csv(paste0("In/Brokers/POSTURAS_GFI_DERIVADOS_", fecha, ".csv"), header = FALSE, sep=",", fill=T)
+#gfi_op_quote=read.table(paste0("In/Brokers/POSTURAS_GFI_OPCIONES_", fecha, ".csv"), header = FALSE, sep=",", fill=T)
+
+tenors=read.table("In/TenorBrokers.csv", header = TRUE, sep=",", colClasses=rep("character",6))
+#1) FORWARDS:----------------------------------------------------------------------------------------------------------------------------------------------------
+#1.1) Quotes:
+
+fwd_ic=read.table(paste0("In/Brokers/Fwd_USDCOP_ICAP_",fecha,".csv"), header = FALSE, sep=",")
+
+fwd_trb=tr_close$NIVEL.BID[(tr_close$COD.INSTRUMENTO=="FD")];fwd_tra=tr_close$NIVEL.ASK[(tr_close$COD.INSTRUMENTO=="FD")];fwd_trm=0.5*(fwd_trb+fwd_tra);
+fwd_trm=c(round(fwd_trm[1]/fwd_ic$V1[2],2),fwd_trm);ba1d=fwd_tra[1]-fwd_trb[1];fwd_trb=c(fwd_trm[1]-0.5*ba1d,fwd_trb); fwd_tra=c(fwd_trm[1]+0.5*ba1d,fwd_tra)
+fwd_tr=data.frame(V1=fwd_ic$V1,V2=fwd_trm[1:length(fwd_ic$V1)],V3=fwd_trb[1:length(fwd_ic$V1)],V4=fwd_tra[1:length(fwd_ic$V1)])
+
+fwd_gf=read.table(paste0("In/Brokers/Fwd_USDCOP_GFI_",fecha,".csv"), header = FALSE, sep=",", colClasses=c("integer", "numeric", "numeric", "numeric"))
+
+
+#1.2) Weigths:
+#1.2.1 Weigths ICAP:
+fwd_icw=0;tenor_oper_ic=NULL
+for(fwd in tenors$ICAP_trades){
+wi=sum(icap$V12[icap$V3==fwd & icap$V5=="NDF" & icap$V6=="SWAP"])
+fwd_monto_min=tenors$INFOVALMER[fwd==tenors$ICAP_trades]==as.character(fwd_monto$tenor)
+if(any(fwd_monto_min)){ind_w=(wi>=fwd_monto$monto[fwd_monto_min])
+                       fwd_icw=fwd_icw+wi*ind_w
+                       if(wi>0 & ind_w){tenor_oper_ic=c(tenor_oper_ic, as.character(fwd_monto$tenor)[fwd_monto_min])}}
+}
+#1.2.2. Weigths TRADITION:
+fwd_trw=0;tenor_oper_tr=NULL
+for(fwd in tenors$TRAD){
+  wi=sum(tr_trade$NOMINAL[tr_trade$FECHA.DE.LIQUIDACION==fwd & tr_trade$TIPO.DE.DERIVADO=="FD" & tr_trade$SUBYACENTE=="USD" & tr_trade$NOMBRE.CONTRATO=="LOCAL"])*1e6
+  fwd_monto_min=tenors$INFOVALMER[fwd==tenors$TRAD]==as.character(fwd_monto$tenor)
+  if(any(fwd_monto_min)){ind_w=(wi>=fwd_monto$monto[fwd_monto_min])
+                         fwd_trw=fwd_trw+wi*(wi>=fwd_monto$monto[fwd_monto_min])}
+                         if(wi>0 & ind_w){tenor_oper_tr=c(tenor_oper_tr, as.character(fwd_monto$tenor)[fwd_monto_min])}
+}
+
+
+#1.2.3 Weigths GFI:
+
+fwd_gfw=ifelse(sum(fwd_gf$V5)>0,sum(fwd_gf$V5),1)
+
+if(fwd_icw==0 & fwd_trw == 0){fwd_icw=1;fwd_trw=1}
+#Curva Fwd:
+curva_gfw=fwd_gf$V2;curva_gfw[which(fwd_gf$V2!=0)]=fwd_gfw #GFI solo afecta los nodos donde presentó cotización
+#el de la metodologia vieja## fwd_mid=(fwd_ic$V2*fwd_icw+fwd_tr$V2*fwd_trw+fwd_gf$V2*fwd_gfw)/(fwd_icw+fwd_trw+curva_gfw)
+fwd_bid=apply(cbind(fwd_ic$V3,fwd_tr$V3),1,FUN="max")
+fwd_ask=apply(cbind(fwd_ic$V4,fwd_tr$V4),1,FUN="min")
+#nuevo calculo del mid
+fwd_mid=mean(c(fwd_bid,fwd_ask))
+fwd_consol=round(data.frame(V1=fwd_ic$V1,V2=fwd_mid,V3=fwd_bid,V4=fwd_ask),2)
+res_fwd=data.frame(fwd_consol,fwd_ic$V2,fwd_tr$V2,fwd_gf$V2);colnames(res_fwd)=c("DAYS","LAST", "BID", "ASK", "ICAP", "TRAD", "GFI")
+write.table(fwd_consol[fwd_consol$V1<fwdval,],"In/Fwd_USDCOP_In.txt", col.names=F, row.names=F)
+
+print("MONTOS NEGOCIADOS FWD:")
+print(data.frame(ICAPW=fwd_icw, TRADW=fwd_trw, GFIW=fwd_gfw))
+print("TENOR NEGOCIADOS ICAP Y TRADITION:")
+print(list(ICAPW=tenor_oper_ic, TRADW=tenor_oper_tr))
+print(res_fwd)
+
+#2) IBR:----------------------------------------------------------------------------------------------------------------------------------------------------
+
+swapi_ic=read.table(paste0("In/Brokers/Swap_IBR_ICAP_2_",fecha,".csv"), header = FALSE, sep=",")
+
+res_ibrTr=matrix(rep(0,length(swapi_ic$V1)*3),ncol=3)
+
+#2.1)Resumen de Quotes. (Actualmente solo Tradition nos reporta esta información por un archivo del FTP):
+hora_fin=hora_corte
+hora_ini=hora_corte-300
+#hora_fin=strptime("12:55:00", format="%H:%M:%S", tz="")
+#hora_ini=strptime("12:54:59", format="%H:%M:%S", tz="")
+tr_quote$HORA.FIN=strptime(paste(tr_quote$HORA.FIN), format="%H:%M:%S", tz="")
+tr_quote$HORA.INICIO=strptime(paste(tr_quote$HORA.INICIO), format="%H:%M:%S", tz="")
+
+pos1=which((format(tr_quote$HORA.FIN, format="%H")=="01"|is.na(tr_quote$HORA.FIN)) & (tr_quote$HORA.INICIO<hora_ini & format(tr_quote$HORA.INICIO, format="%H")!="01"))
+tr_quote$HORA.FIN[pos1]=tr_quote$HORA.FIN[pos1]+12*60*60#Se adhiren 12 horas cuando el dato inicia con 1.
+
+swapi_trqtPos=which(as.character(tr_quote$FECHA.DE.LIQUIDACION) %in% tenors$TRAD & tr_quote$SUBYACENTE=="IBR" & tr_quote$NOMINAL>=5000 & tr_quote$HORA.INICIO<=hora_ini & (tr_quote$HORA.FIN>=hora_fin | is.na(tr_quote$HORA.FIN)));
+
+swapi_trqt=tr_quote[swapi_trqtPos,c(12,15,16)]#Se crea matriz con Tenor, Bid y Ask
+colnames(swapi_trqt)=c("Tenor", "Bid", "Ask")
+swapi_trTenor=as.character(unique(swapi_trqt$Tenor))
+swapi_trqtLast=matrix(rep(0, length(swapi_trTenor)*3), ncol=3)
+postrad=sort(match(swapi_trTenor, tenors$TRAD))#Posición de tenors ordenados
+swapi_trTenor=as.character(tenors$TRAD[postrad])#Tenors ordenados de mayor a menor
+
+if(length(swapi_trTenor)>0){
+for(posi in c(1:length(swapi_trTenor))){
+  swapi_trqtLast[posi,2]=max(swapi_trqt$Bid[!is.na(swapi_trqt$Bid) & as.character(swapi_trqt$Tenor)==as.character(swapi_trTenor[posi])])
+  swapi_trqtLast[posi,3]=min(swapi_trqt$Ask[!is.na(swapi_trqt$Ask) & as.character(swapi_trqt$Tenor)==as.character(swapi_trTenor[posi])])
+  swapi_trqtLast[posi,1]=0.5*(swapi_trqtLast[posi,2]+swapi_trqtLast[posi,3])
+}}
+swapi_trqtLast=data.frame(swapi_trTenor,swapi_trqtLast)
+colnames(swapi_trqtLast)=c("Tenor", "Mid", "Bid", "Ask")
+#swapi_trqtLast=swapi_trqtLast[abs((swapi_trqtLast$Ask-swapi_trqtLast$Bid))<=0.2,]
+
+##2.2)Resumen de operaciones.
+
+res_ibrTrades=matrix(rep(0,length(swapi_ic$V1)*3),ncol=3)
+swapi_trpos=which(tr_trade$SUBYACENTE=="IBR" & !is.na(tr_trade$NIVEL.BID))
+if(length(swapi_trpos)!=0){
+  swapi_trTr=data.frame(V1=tr_trade$FECHA.DE.LIQUIDACION[swapi_trpos], V2=0.005*(tr_trade$NIVEL.BID[swapi_trpos]+tr_trade$NIVEL.ASK[swapi_trpos]),V3=tr_trade$NOMINAL[swapi_trpos])
+  tenorTr=as.character(unique(swapi_trTr$V1));ratei_trTr=c()
+  for(i in tenorTr){
+    posTen=as.character(swapi_trTr$V1)==i
+    ratei_trTr=c(ratei_trTr,sum(swapi_trTr$V2[posTen]*swapi_trTr$V3[posTen])/sum(swapi_trTr$V3[posTen]))
+  }
+  swapi_trTrades=data.frame(V1=tenorTr, V2=ratei_trTr*100)
+  res_ibrTrades[match(swapi_trTrades$V1,swapi_ic$V1),2]=swapi_trTrades$V2  
+}
+
+swapi_gfpos=which(gfi_close$V7=="IBR")
+if(length(swapi_gfpos)!=0){
+  vto=as.Date(as.character(gfi_close$V11[swapi_gfpos]), format="%Y%m%d")#"%Y-%m-%d");
+  tenor_m= 12*(as.numeric(format(vto, format="%Y"))-as.numeric(format(fecha_h, format="%Y")))+as.numeric(format(vto, format="%m"))-as.numeric(format(fecha_h, format="%m"))
+  tk_m=paste0(tenor_m,"M");posten=match(seq(12,12*25,12),tenor_m);posten=posten[!is.na(posten)]
+  if(length(posten)!=0){tk_m[posten]=paste0(tenor_m[posten]/12,"Y")}
+  swapi_gfTr=data.frame(V1=tk_m, V2=gfi_close$V14[swapi_gfpos],V3=gfi_close$V12[swapi_gfpos])
+  tenorGf=as.character(unique(tk_m));ratei_gfTr=c()
+  for(i in tenorGf){
+    posTen=as.character(swapi_gfTr$V1)==i
+    ratei_gfTr=c(ratei_gfTr,sum(swapi_gfTr$V2[posTen]*swapi_gfTr$V3[posTen])/sum(swapi_gfTr$V3[posTen]))
+  }
+  swapi_gfTrades=data.frame(V1=tenorGf, V2=ratei_gfTr)
+  matchTen=match(swapi_gfTrades$V1, tenors$GFI_Close)# Sergio B. arreglo la mayuscula del close antes era tenors$GFI_Close
+  if(!is.na(matchTen)){
+    posgf_tr=match(tenors$ICAP[matchTen], swapi_ic$V1)
+    res_ibrTrades[posgf_tr,3]=swapi_gfTrades$V2
+  }
+}
+
+colnames(res_ibrTrades)=c("ICAP", "TRAD", "GFI")
+res_ibrTrades=data.frame(Tenor=swapi_ic$V1, res_ibrTrades)
+print("RESUMEN OPERACIONES GFI yTRADITION", quote=F)
+res_ibrTrades=res_ibrTrades[(res_ibrTrades$ICAP!=0 | res_ibrTrades$TRAD!=0 | res_ibrTrades$GFI!=0),]
+print(res_ibrTrades)
+
+#swapi_trTenor=unique(c(as.character(swapi_trqtLast[abs((swapi_trqtLast$Ask-swapi_trqtLast$Bid))<=0.2,]$Tenor),as.character(res_ibrTrades$Tenor[res_ibrTrades$TRAD!=0])))
+
+#2.3)Resumen Curva de Cierre
+
+#swapi_trpos=which(tr_close$SUBYACENTE=="IBR" & !is.na(tr_close$NIVEL.BID))
+swapi_trpos=integer()#No se tiene en cuenta closing de IBR de tradition, sólo quotes.
+swapi_tr=data.frame(V1=tr_close$FECHA.DE.LIQUIDACION[swapi_trpos], V2=0.005*(tr_close$NIVEL.BID[swapi_trpos]+tr_close$NIVEL.ASK[swapi_trpos]), V3=tr_close$NIVEL.BID[swapi_trpos],V4=tr_close$NIVEL.ASK[swapi_trpos])
+swapi_trTenor=which((swapi_tr$V4-swapi_tr$V3)<=0.09)#Tenor que cumplen el criterio de MENOS de 10 Básicos
+swapi_tr=swapi_tr[swapi_trTenor,]
+#swapi_tr=swapi_tr[c(match(swapi_trTenor, as.character(swapi_tr$V1)),),]#Se eliminan los tenors que no cumplen los criterios
+swapi_tr_last=swapi_tr$V2[c(match(swapi_ic$V1,swapi_tr$V1))];swapi_tr_last[is.na(swapi_tr_last)]=0#Se ajusta al orden de los tenor de ICAP
+
+#2.3.1) Bid Offer simulados
+#swapi_trb=swapi_tr$V2[match(swapi_ic$V1,swapi_tr$V1)]-0.001;swapi_trb[is.na(swapi_trb)]=0
+#swapi_tra=swapi_tr$V2[match(swapi_ic$V1,swapi_tr$V1)]+0.001;swapi_tra[is.na(swapi_tra)]=1
+#2.3.2) Bid Offer Archivo Closing
+#swapi_trb=swapi_tr$V3[match(swapi_ic$V1,swapi_tr$V1)];swapi_trb[is.na(swapi_trb)]=0
+#swapi_tra=swapi_tr$V4[match(swapi_ic$V1,swapi_tr$V1)];swapi_tra[is.na(swapi_tra)]=1
+
+#2.3.3) Bid Offer Real
+#Para nodos que cumplen los criterios, se toma directamente el closing de TRAD:
+tenor_qt=match(as.character(swapi_tr$V1),as.character(swapi_trqtLast$Tenor))
+tenor_noqt=which(is.na(tenor_qt))#Tenor con closing, sin quote
+swapi_trnoq=swapi_tr[is.na(tenor_qt),];colnames(swapi_trnoq)=c("Tenor", "Mid", "Bid", "Ask")#Tenors con closing <0.2 pero sin quote.
+tenor_qt=tenor_qt[!is.na(tenor_qt)]#Se retiran los NA
+if(length(tenor_noqt)==0){
+swapi_trqtLast[tenor_qt,c(2:4)]=swapi_tr[,c(2:4)]#Se reemplazan los quotes por el closing
+}
+if(length(tenor_noqt)!=0){
+swapi_trqtLast[tenor_qt,c(2:4)]=swapi_tr[-tenor_noqt,c(2:4)]#Se reemplazan los quotes por el closing
+swapi_trqtLast=rbind(swapi_trqtLast,swapi_trnoq)#se incluyen tenors con closing pero sin quotes
+postrad=match(swapi_trqtLast$Tenor, tenors$TRAD)#Posición de tenors en tenors$TRAD
+swapi_trqtLast=swapi_trqtLast[order(data.frame(swapi_trqtLast,pos=postrad)$pos),]
+}
+print("RESUMEN QUOTES DE TRADITION", quote=F)
+print(swapi_trqtLast)
+
+swapi_trb=swapi_trqtLast$Bid[match(swapi_ic$V1,swapi_trqtLast$Tenor)]/100;swapi_trb[is.na(swapi_trb)]=0
+swapi_tra=swapi_trqtLast$Ask[match(swapi_ic$V1,swapi_trqtLast$Tenor)]/100;swapi_tra[is.na(swapi_tra)]=1
+
+swapi_gfpos=which(gfi_quote$V3=="IBR")# & gfi_quote$V13=="SI")
+swapi_gf=data.frame(V1=tenors$ICAP[match(gfi_quote$V8[swapi_gfpos], tenors$GFI)], V2=0.005*(gfi_quote$V10[swapi_gfpos]+gfi_quote$V11[swapi_gfpos]), V3=gfi_quote$V10[swapi_gfpos]/100,V4=gfi_quote$V11[swapi_gfpos]/100)
+swapi_gfb=swapi_gf$V3[match(swapi_ic$V1,swapi_gf$V1)];swapi_gfb[is.na(swapi_gfb)]=0
+swapi_gfa=swapi_gf$V4[match(swapi_ic$V1,swapi_gf$V1)];swapi_gfa[is.na(swapi_gfa)]=1
+
+
+swapi_consolb=apply(cbind(swapi_ic$V4, swapi_trb, swapi_gfb),1,FUN="max")
+swapi_consola=apply(cbind(swapi_ic$V5, swapi_tra, swapi_gfa),1,FUN="min")
+swapi_consolm=0.5*(swapi_consolb+swapi_consola)
+
+posT=which(swapi_consolb==0 | swapi_consola==1)#Posiciones en las que el Bid-Offer es mayor que  0.2
+lic=length(swapi_consolm);
+if(length(posT)>0 & (any(diff(posT)>1)|max(posT)!=lic)){
+posTi=posT[(posT<max(c(1:lic)[-posT]))]#solo posiciones que se puedan interpolar INTERPOLAR.
+swapi_consolm[posTi]=round(approx(x=swapi_ic$V2[-posTi], y=swapi_consolm[-posTi], xout=swapi_ic$V2[posTi])$y,5)
+swapi_consolm[posT[posT>max(posTi)]]=swapi_ic$V3[posT[posT>max(posTi)]]}else{#En los extremos usamos información de ICAP
+swapi_consolm[posT]=swapi_ic$V3[posT]}#En los extremos usamos información de ICAP
+
+swapi_TM=rep("M",length(swapi_consolm));swapi_TM[posT]="T"
+swapi_consol=data.frame(V1=swapi_ic$V2, V2=round(swapi_consolm,5), V3=swapi_TM)
+swapi_consol_camara=data.frame(V1=swapi_ic$V2, V2=round(swapi_consolm,16), V3=swapi_TM)
+if(ibr_adjust==1){#Ajuste para cambiar los nodos teóricos de acuerdo a las variaciones de un día a otro. Se reescribe el archivo Swap_IBR_Nodos
+  pos_ibr=which(ResYest$Curva=="IBR")
+  swpi_curva_ant=data.frame(V1=as.numeric(as.character(ResYest$Dias[pos_ibr])),V2=as.numeric(as.character(ResYest$Mid[pos_ibr])))
+  swapi_consol=adjust_curve(date_ini=fecha_ini, curve_t1=swapi_consol, curve_t0=swpi_curva_ant, tk_st=c("ON"))
+  swapi_consol_camara=adjust_curve(date_ini=fecha_ini, curve_t1=swapi_consol_camara, curve_t0=swpi_curva_ant, tk_st=c("ON"))
+}
+write.table(swapi_consol,paste0("Out/PreTRM/Swap_IBR_Nodos_", fecha, ".txt"), quote=F, col.names=F, row.names=F)
+write.table(swapi_consol_camara,paste0("Out/Otras Estructuras/Crcc/Swap_IBR_Nodos_crcc_", fecha, ".txt"), quote=F, col.names=F, row.names=F)
+
+res_ibr=data.frame(TENOR=swapi_ic$V1, INF=100*swapi_consol$V2,BID=100*swapi_consolb, ASK=100*swapi_consola,TM=swapi_TM,ICAP=100*swapi_ic$V3,TRAD=100*swapi_tr_last,GFI=100*0.5*(swapi_gfa+swapi_gfb));colnames(res_ibr)=c("Tenor", "INF", "BID", "ASK", "T/M", "ICAP", "TRAD", "GFI")
+res_ibr[res_ibr==50]=0
+print(res_ibr)
+
+
+
+#3) LIBORCOP:----------------------------------------------------------------------------------------------------------------------------------------------------
+
+##3.1)Resumen de operaciones LIBOR/COP.
+# swaplc_ic=read.table(paste0("In/Brokers/Swap_LIBORCOP_ICAP_",fecha,".csv"), header = FALSE, sep=",")
+# res_lcTrades=t(rep(0,3))
+# res_lcTrades=matrix(rep(0,length(swaplc_ic$V1)*3),ncol=3)
+# swaplc_trpos=which(tr_trade$SUBYACENTE=="LIBOR" & !is.na(tr_trade$NIVEL.BID))
+# if(length(swaplc_trpos)!=0){
+#   swaplc_trTr=data.frame(V1=tr_trade$FECHA.DE.LIQUIDACION[swaplc_trpos], V2=0.005*(tr_trade$NIVEL.BID[swaplc_trpos]+tr_trade$NIVEL.ASK[swaplc_trpos]),V3=tr_trade$NOMINAL[swaplc_trpos])
+#   tenorTr=as.character(unique(swaplc_trTr$V1));ratelc_trTr=c()
+#   for(i in tenorTr){
+#     posTen=as.character(swaplc_trTr$V1)==i
+#     ratelc_trTr=c(ratelc_trTr,sum(swaplc_trTr$V2[posTen]*swaplc_trTr$V3[posTen])/sum(swaplc_trTr$V3[posTen]))
+#   }
+#   swaplc_trTrades=data.frame(V1=tenorTr, V2=ratelc_trTr*100)
+#   res_lcTrades[match(swaplc_trTrades$V1,swaplc_ic$V1),2]=swaplc_trTrades$V2  
+# }
+# 
+# swaplc_gfpos=which(gfi_close$V7=="LIBOR")
+# if(length(swaplc_gfpos)!=0){
+#   vto=as.Date(as.character(gfi_close$V11[swaplc_gfpos]), format="%Y%m%d")#"%Y-%m-%d");
+#   tenor_m= 12*(as.numeric(format(vto, format="%Y"))-as.numeric(format(fecha_h, format="%Y")))+as.numeric(format(vto, format="%m"))-as.numeric(format(fecha_h, format="%m"))
+#   tk_m=paste0(tenor_m,"M");posten=match(seq(12,12*25,12),tenor_m);posten=posten[!is.na(posten)]
+#   if(length(posten)!=0){tk_m[posten]=paste0(tenor_m[posten]/12,"Y")}
+#   swaplc_gfTr=data.frame(V1=tk_m, V2=gfi_close$V14[swaplc_gfpos],V3=gfi_close$V12[swaplc_gfpos])
+#   tenorGf=as.character(unique(tk_m));ratelc_gfTr=c()
+#   for(i in tenorGf){
+#     posTen=as.character(swaplc_gfTr$V1)==i
+#     ratelc_gfTr=c(ratelc_gfTr,sum(swaplc_gfTr$V2[posTen]*swaplc_gfTr$V3[posTen])/sum(swaplc_gfTr$V3[posTen]))
+#   }
+#   swaplc_gfTrades=data.frame(V1=tenorGf, V2=ratelc_gfTr)
+#   matchTen=match(swaplc_gfTrades$V1, tenors$GFI_close)
+#   if(!is.na(matchTen)){
+#     posgf_tr=match(tenors$ICAP[matchTen], swaplc_ic$V1)
+#     res_lcTrades[posgf_tr,3]=swaplc_gfTrades$V2
+#   }
+# }
+# 
+# colnames(res_lcTrades)=c("ICAP", "TRAD", "GFI")
+# res_lcTrades=data.frame(Tenor=swaplc_ic$V1, res_lcTrades)
+# print("RESUMEN OPERACIONES LIBORCOP GFI yTRADITION", quote=F)
+# res_lcTrades=res_lcTrades[(res_lcTrades$ICAP!=0 | res_lcTrades$TRAD!=0 | res_lcTrades$GFI!=0),]
+# print(res_lcTrades)
+# postr_gf=match(res_lcTrades$Tenor[which(res_lcTrades$GFI!=0)],swaplc_ic$V1)
+# 
+# #Resumen Curvas de Cierre LIBOR/COP.
+# 
+# swaplc_trqtPos=which(tr_quote$COD.CONTRATO=="LIBOR");
+# if(length(swaplc_trqtPos)==0){print("No hay cotizaciones de LIBOR/COP en Tradition!!!")}
+# 
+# swaplc_gfpos=which(gfi_quote$V3=="LIBOR");if(length(swaplc_gfpos)==0){print("No hay cotizaciones de LIBOR/COP en GFI!!!")}
+#                                                                                                                                       
+# 
+# swaplc_trpos=which(tr_close$SUBYACENTE=="LIBOR" & !is.na(tr_close$NIVEL.BID))
+# swaplc_tr=data.frame(V1=tr_close$FECHA.DE.LIQUIDACION[swaplc_trpos], V2=0.005*(tr_close$NIVEL.BID[swaplc_trpos]+tr_close$NIVEL.ASK[swaplc_trpos]), V3=tr_close$NIVEL.BID[swaplc_trpos]/100,V4=tr_close$NIVEL.ASK[swaplc_trpos]/100)
+# swaplc_tr=swaplc_tr[match(unique(tr_quote$FECHA.DE.LIQUIDACION[swaplc_trqtPos]),swaplc_tr$V1),]#Solo se consideran los nodos donde hubo cotizaciones
+# swaplc_trb=swaplc_tr$V3[match(swaplc_ic$V1,swaplc_tr$V1)];swaplc_trb[is.na(swaplc_trb)]=0
+# swaplc_tra=swaplc_tr$V4[match(swaplc_ic$V1,swaplc_tr$V1)];swaplc_tra[is.na(swaplc_tra)]=1
+# 
+# swaplc_gf=data.frame(V1=tenors$ICAP[match(gfi_quote$V8[swaplc_gfpos], tenors$GFI)], V2=0.005*(gfi_quote$V10[swaplc_gfpos]+gfi_quote$V11[swaplc_gfpos]), V3=gfi_quote$V10[swaplc_gfpos]/100,V4=gfi_quote$V11[swaplc_gfpos]/100)
+# swaplc_gfb=swaplc_gf$V3[match(swaplc_ic$V1,swaplc_gf$V1)];swaplc_gfb[is.na(swaplc_gfb)]=0
+# swaplc_gfa=swaplc_gf$V4[match(swaplc_ic$V1,swaplc_gf$V1)];swaplc_gfa[is.na(swaplc_gfa)]=1
+# 
+# in_ba=(res_lcTrades$GFI[which(res_lcTrades$GFI!=0)]/100>swaplc_gfb[postr_gf] & res_lcTrades$GFI[which(res_lcTrades$GFI!=0)]/100<swaplc_gfa[postr_gf])
+# swaplc_gfb[postr_gf]=max(swaplc_gfb[postr_gf],(res_lcTrades$GFI[which(res_lcTrades$GFI!=0)]/100)*in_ba)#Se incluye bid de operaciones
+# swaplc_gfa[postr_gf]=min(swaplc_gfa[postr_gf],(res_lcTrades$GFI[which(res_lcTrades$GFI!=0)]/100)*in_ba+1-in_ba);#Se incluye ask de operaciones
+# 
+# swaplc_gf=data.frame(V1=tenors$ICAP[match(gfi_quote$V8[swaplc_gfpos], tenors$GFI)], V2=0.005*(gfi_quote$V10[swaplc_gfpos]+gfi_quote$V11[swaplc_gfpos]), V3=gfi_quote$V10[swaplc_gfpos]/100,V4=gfi_quote$V11[swaplc_gfpos]/100)
+# 
+# swaplc_consolb=apply(cbind(swaplc_ic$V4, swaplc_trb, swaplc_gfb),1,FUN="max")
+# swaplc_consola=apply(cbind(swaplc_ic$V5, swaplc_tra, swaplc_gfa),1,FUN="min")
+# swaplc_consolm=0.5*(swaplc_consolb+swaplc_consola)
+# 
+# posT=which((swaplc_consola-swaplc_consolb)>0.002)
+# swaplc_consolm[posT]=swaplc_ic$V3[posT]#En los nodos donde no hay info de mercado se toma el closing de ICAP
+# 
+# swaplc_consol=data.frame(V1=swaplc_ic$V2, V2=swaplc_consolm)
+# 
+# write.table(round(swaplc_consol,5),"In/Swap_LIBORCOP_In.txt", col.names=F, row.names=F)
+# 
+# res_lc=data.frame(swaplc_ic$V1, 100*swaplc_consol$V2,100*swaplc_ic$V3,100*0.5*(swaplc_tra+swaplc_trb),100*0.5*(swaplc_gfa+swaplc_gfb));colnames(res_lc)=c("Tenor", "LAST", "ICAP", "TRAD", "GFI")
+# res_lc[res_lc==50]=0
+# print(res_lc)
+
+#4) IBRLIBOR:----------------------------------------------------------------------------------------------------------------------------------------------------
+#Quotes Set-ICAP
+swapil_ic=read.table(paste0("In/Brokers/Swap_IBRLIBOR_ICAP_2_",fecha,".csv"), header = FALSE, sep=",")
+
+#Quotes Tradition:
+swapil_trpos=which(tr_close$SUBYACENTE=="IBRLIBOR" & !is.na(tr_close$NIVEL.BID))
+swapil_tr=data.frame(V1=tenors$ICAP[match(as.character(tr_close$FECHA.DE.LIQUIDACION[swapil_trpos]), tenors$TRAD)], V2=0.00005*(tr_close$NIVEL.BID[swapil_trpos]+tr_close$NIVEL.ASK[swapil_trpos]), V3=tr_close$NIVEL.BID[swapil_trpos]/10000,V4=tr_close$NIVEL.ASK[swapil_trpos]/10000)
+swapil_trTenor=which((swapil_tr$V4-swapil_tr$V3)<=0.0050)#Tenor que cumplen el criterio de MENOS de 50 Básicos
+swapil_tr=swapil_tr[swapil_trTenor,]
+
+#Se incorporan Quotes Tradition. (Actualmente solo Tradition nos reporta esta información por un archivo del FTP):
+swapil_trqtPos=which(as.character(tr_quote$FECHA.DE.LIQUIDACION) %in% tenors$TRAD & tr_quote$SUBYACENTE=="BASIS IBR/LIBOR" & tr_quote$NOMINAL>=5 & tr_quote$HORA.INICIO<=hora_ini & (tr_quote$HORA.FIN>=hora_fin | is.na(tr_quote$HORA.FIN)));
+swapil_trqt=tr_quote[swapil_trqtPos,c(12,15,16)]#Se crea matriz con Tenor, Bid y Ask
+colnames(swapil_trqt)=c("Tenor", "Bid", "Ask")
+swapil_trTenor=as.character(unique(swapil_trqt$Tenor))
+swapil_trqtLast=matrix(rep(0, length(swapil_trTenor)*3), ncol=3)
+postrad=sort(match(swapil_trTenor, tenors$TRAD))#Posición de tenors ordenados
+swapil_trTenor=as.character(tenors$TRAD[postrad])#Tenors ordenados de mayor a menor
+
+if(length(swapil_trTenor)>0 & any(is.na(match(swapil_trTenor,swapil_tr$V1)))){
+  for(posi in c(1:length(swapil_trTenor))){
+    swapil_trqtLast[posi,2]=max(swapil_trqt$Bid[!is.na(swapil_trqt$Bid) & as.character(swapil_trqt$Tenor)==as.character(swapil_trTenor[posi])])/10000
+    swapil_trqtLast[posi,3]=min(swapil_trqt$Ask[!is.na(swapil_trqt$Ask) & as.character(swapil_trqt$Tenor)==as.character(swapil_trTenor[posi])])/10000
+    swapil_trqtLast[posi,1]=0.5*(swapil_trqtLast[posi,2]+swapil_trqtLast[posi,3])
+  }
+  swapil_trqtLast[is.infinite(swapil_trqtLast)]=NA
+  swapil_trqtLast=data.frame(swapil_trTenor,swapil_trqtLast)
+  colnames(swapil_trqtLast)=colnames(swapil_tr)
+  swapil_tr=rbind(swapil_tr,swapil_trqtLast[is.na(match(swapil_trqtLast$V1,swapil_tr$V1)),])
+}
+
+swapil_trb=swapil_tr$V3[match(swapil_ic$V1,swapil_tr$V1)];swapil_trb[is.na(swapil_trb)]=-1
+swapil_tra=swapil_tr$V4[match(swapil_ic$V1,swapil_tr$V1)];swapil_tra[is.na(swapil_tra)]=1
+
+
+swapil_gfpos=which(gfi_quote$V4=="IBR/LIBOR")
+swapil_gf=data.frame(V1=tenors$ICAP[match(as.character(gfi_quote$V8[swapil_gfpos]), tenors$GFI)], V2=0.00005*(gfi_quote$V10[swapil_gfpos]+gfi_quote$V11[swapil_gfpos]), V3=gfi_quote$V10[swapil_gfpos]/10000,V4=gfi_quote$V11[swapil_gfpos]/10000)
+swapil_gfb=swapil_gf$V3[match(swapil_ic$V1,swapil_gf$V1)];swapil_gfb[is.na(swapil_gfb)]=-1
+swapil_gfa=swapil_gf$V4[match(swapil_ic$V1,swapil_gf$V1)];swapil_gfa[is.na(swapil_gfa)]=1
+
+#Quotes GFI:
+swapil_consolb=apply(cbind(swapil_ic$V4, swapil_gfb, swapil_trb),1,FUN="max")
+swapil_consola=apply(cbind(swapil_ic$V5, swapil_gfa, swapil_tra),1,FUN="min")
+swapil_consolm=0.5*(swapil_consolb+swapil_consola)
+swapil_consolm[swapil_consolb==-1|swapil_consola==1]=0
+##swapil_consol con Bid - Offer
+swapil_consol=data.frame(V1=swapil_ic[,2],V2=10000*swapil_consolm, V3=10000*swapil_consolb, V4=10000*swapil_consola)
+
+#pos_ant=which(swapil_consol$V1>558 & swapil_consol$V3==-10000 & swapil_consol$V4==10000)
+pos_ant=which(swapil_consol$V3==-10000 | swapil_consol$V4==10000)
+swapil_TM=rep("M",length(swapil_consolm));swapil_TM[pos_ant]="T"
+
+#Operaciones:
+swapil_trades=swapil_trades_q=matrix(rep(0,length(swapil_ic$V1)*3),ncol=3)
+
+swapil_trpos=which(tr_trade$COD.CONTRATO=="BASIS IBR/LIBOR" & !is.na(tr_trade$NIVEL.BID))
+if(length(swapil_trpos)!=0){
+  swapil_trTr=data.frame(V1=tr_trade$FECHA.DE.LIQUIDACION[swapil_trpos], V2=0.5*(tr_trade$NIVEL.BID[swapil_trpos]+tr_trade$NIVEL.ASK[swapil_trpos]),V3=tr_trade$NOMINAL[swapil_trpos])
+  tenorTr=as.character(unique(swapil_trTr$V1));rateil_trTr=qil_trTr=c();
+  for(i in tenorTr){
+    posTen=as.character(swapil_trTr$V1)==i
+    qi=sum(swapil_trTr$V3[posTen])
+    qil_trTr=c(qil_trTr,qi)
+    rateil_trTr=c(rateil_trTr,sum(swapil_trTr$V2[posTen]*swapil_trTr$V3[posTen])/qil_trTr[posTen]) #SP
+  }
+  swapil_trTrades=data.frame(V1=tenorTr, V2=rateil_trTr)
+  swapil_trades[match(swapil_trTrades$V1,swapil_ic$V1),2]=swapil_trTrades$V2
+  swapil_trades_q[match(swapil_trTrades$V1,swapil_ic$V1),2]=qil_trTr
+}
+
+swapil_gfpos=which(gfi_close$V7=="IBRLIBOR")
+if(length(swapil_gfpos)!=0){
+  vto=as.Date(as.character(gfi_close$V11[swapil_gfpos]), format="%Y%m%d")#"%Y-%m-%d");
+  tk_m=ticket_tenor(fecha_ini,as.numeric(vto-fecha_ini))
+  swapil_gfTr=data.frame(V1=tk_m, V2=gfi_close$V14[swapil_gfpos],V3=gfi_close$V12[swapil_gfpos])
+  tenorGf=as.character(unique(tk_m));rateil_gfTr=c()
+  for(i in tenorGf){
+    posTen=as.character(swapil_gfTr$V1)==i
+    qi=sum(swapil_gfTr$V3[posTen])
+    qil_gfTr=c(qil_gfTr,qi)
+    rateil_gfTr=c(rateil_gfTr,sum(swapil_gfTr$V2[posTen]*swapil_gfTr$V3[posTen])/qi)
+  }
+  swapil_gfTrades=data.frame(V1=tenorGf, V2=rateil_gfTr)
+  matchTen=match(swapil_gfTrades$V1, tenors$GFI_Close)
+  if(!is.na(matchTen)){
+    posgf_tr=match(tenors$ICAP[matchTen], swapil_ic$V1)
+    swapil_trades[posgf_tr,3]=swapil_gfTrades$V2
+    swapil_trades_q[posgf_tr,3]=qil_gfTr
+  }
+}
+colnames(swapil_trades)=colnames(swapil_trades_q)=c("ICAP", "TRAD", "GFI")
+swapil_trades=data.frame(Tenor=swapil_ic$V1, swapil_trades)
+swapil_trades_q=data.frame(Tenor=swapil_ic$V1, swapil_trades_q)
+print("RESUMEN OPERACIONES BASIS IBRL/LIBOR", quote=F)
+swapil_trades_q=swapil_trades_q[(swapil_trades$ICAP!=0 | swapil_trades$TRAD!=0 | swapil_trades$GFI!=0),]
+swapil_trades=swapil_trades[(swapil_trades$ICAP!=0 | swapil_trades$TRAD!=0 | swapil_trades$GFI!=0),]
+print(swapil_trades)
+
+##Cuando hay tenors SIN quotes, se toma el precio ponderado de operaciones (si las hay!).
+if(length(swapil_trades$Tenor)>0){
+  posil_oper=intersect(pos_ant,match(swapil_trades$Tenor,swapil_ic$V1))
+  if(length(posil_oper)>0){
+    swapil_consol[posil_oper,-1]=apply(swapil_trades[,-1]*swapil_trades_q[-1],1,sum)/apply(swapil_trades_q[,-1],1,sum)
+    swapil_TM[posil_oper]="M"
+  }
+}
+
+##mid_ant_il=as.numeric(as.character(ResYest$Mid[which(ResYest$Curva=="LIBORIBR")]))
+##swapil_consol$V2[pos_ant]=mid_ant_il[pos_ant]
+pos_il=which(ResYest$Curva=="LIBORIBR")
+swpil_curva_ant=data.frame(V1=as.numeric(as.character(ResYest$Dias[pos_il])),V2=as.numeric(as.character(ResYest$Mid[pos_il])))
+swapil_consol$V2[swapil_TM=="T"]=swpil_curva_ant$V2[swapil_TM=="T"]
+#Interpolación plazos menores a 18M_
+posil_cp_m=which(swapil_TM=="M" & swapil_consol$V1<fwdval)
+posil_cp_t=which(swapil_TM=="T" & swapil_consol$V1<fwdval)
+if(length(posil_cp_t)>0 & length(posil_cp_m)>=2 & min(posil_cp_t)>min(posil_cp_m)){
+  swapil_consol$V2[posil_cp_t]=approx_extrap(x=swapil_consol$V1[posil_cp_m], y=swapil_consol$V2[posil_cp_m], xout=swapil_consol$V1[posil_cp_t])$y
+  swapil_consol[posil_cp_t,c("V3","V4")]=swapil_consol$V2[posil_cp_t]
+}
+
+if(ibrlibor_adjust==1 & sum(swapil_TM=="M")>0 & swapil_consol$V1[max(which(swapil_TM=="M"))]>(360*5)){#Ajuste para cambiar los nodos teóricos de acuerdo a las variaciones de un día a otro. Sólo para nodos de largo plazo.
+  swapil_consol_adj=adjust_curve(date_ini=fecha_ini, curve_t1=data.frame(swapil_consol[,c(1,2)],V3=swapil_TM), curve_t0=swpil_curva_ant, tk_st=c("ON"), min_days=fwdval)
+  swapil_consol[,c(1,2)]=round(swapil_consol_adj[,c(1,2)],1)
+}
+write.table(round(swapil_consol[,c(1:2)],5),paste0("Out/PosTRM/Basis_IBRLIBOR_Nodos_1_", fecha, ".txt"), col.names=F, row.names=F)
+# inclusion a variable para base de datos
+if(any(BASE1[,"id"]=="BASISIBRLIBORN1")){
+  pos_reemplazo=which(BASE1$id=="BASISIBRLIBORN1")
+  BASE_in=data.frame(rep(as.character(fecha_ini),number_of_rows),rep("BASISIBRLIBORN1",number_of_rows),round(swapil_consol[,c(1:2)],5),rep(NA,number_of_rows),rep(NA,number_of_rows),rep(NA,number_of_rows))
+  colnames(BASE_in)=c("fecha","id","Nodo","valor","mid","bid","ask")
+  BASE1[pos_reemplazo,]=data.frame(BASE_in)
+  BASE1[pos_reemplazo,"id"]="BASISIBRLIBORN1"
+  BASE1[pos_reemplazo,"fecha"]=as.character(fecha_ini)
+}else{
+  number_of_rows=nrow(round(swapil_consol[,c(1:2)],5))
+  BASE_in=data.frame(rep(as.character(fecha_ini),number_of_rows),rep("BASISIBRLIBORN1",number_of_rows),round(swapil_consol[,c(1:2)],5),rep(NA,number_of_rows),rep(NA,number_of_rows),rep(NA,number_of_rows))
+  colnames(BASE_in)=c("fecha","id","Nodo","valor","mid","bid","ask")
+  BASE1=rbind(BASE1,BASE_in)
+}
+
+#5) DTF:----------------------------------------------------------------------------------------------------------------------------------------------------
+#swapd_ic=read.table(paste0("In/Brokers/Swap_DTF_ICAP_",fecha,".csv"), header = FALSE, sep=",")
+swapd_gfqt=which(gfi_quote$V3=="DTF" & gfi_quote$V13=="SI");if(length(swapd_gfqt)==0){print("No hay cotizaciones de DTF en GFI!!!")}
+swapd_trqtPos=which(tr_quote$SUBYACENTE=="DTF");if(length(swapd_trqtPos)==0){print("No hay cotizaciones de DTF en TRADITION!!!")}else{print("NUEVAS COTIZACIONES EN TRADITION!...FAVOR RECALIBRAR CURVA DTF!!!")
+swapd_trTenor=as.character(unique(tr_quote$FECHA.DE.LIQUIDACION[swapd_trqtPos]))
+swapd_trPos=c()
+for(posd in c(1:length(swapd_trTenor))){
+swapd_trPos=c(swapd_trPos,which(tr_close$SUBYACENTE=="DTF" & tr_close$FECHA.DE.LIQUIDACION==swapd_trTenor[posd]))
+}
+pos_daysd=match(swapd_trTenor,swapi_ic$V2)
+swapd_trb=data.frame(swapi_ic$V2[pos_daysd],tr_close$NIVEL.BID[swapd_trPos])
+swapd_tra=data.frame(swapi_ic$V2[pos_daysd],tr_close$NIVEL.ASK[swapd_trPos])
+swapd_tr=data.frame(d=sort(swapd_tra[,1]),MID=0.5*(swapd_trb[order(swapd_trb[,1]),2]+swapd_tra[order(swapd_tra[,1]),2])/100,BID=swapd_trb[order(swapd_trb[,1]),2]/100,ASK=swapd_tra[order(swapd_tra[,1]),2]/100)
+print(swapd_tr)
+write.table(swapd_tr[,c(1:2)],"In/Swap_DTF_In.txt", col.names=F, row.names=F)
+}
+
+#swapd_consolb=apply(cbind(swaplc_ic$V2-bad/2, swapd_tr$BID),1,FUN="max")
+#swapd_consola=apply(cbind(swaplc_ic$V2+bad/2, swapd_tr$ASK),1,FUN="min")
+#swapd_consolm=0.5*(swapd_consolb+swapd_consola)
+#swapd_consol=data.frame(V1=swapd_tr$d, V2=swapd_consolm)
+#write.table(round(swapd_consol,5),"In/Swap_DTF_In.txt", col.names=F, row.names=F)
+
+#6)Opciones
+#6.1. Opciones GFI
+#opc_last=read.table("In/Opc_USDCOP_Last.csv", header = T, sep=",", check.names=F)
+#gfi_op_ba=gfi_op_quote[-which(gfi_op_quote$V6=="NO"),c(1,3,4,5)]
+#opc_ic=read.table(paste0("In/Brokers/Opc_USDCOP_ICAP_",fecha,".csv"), header = T, sep=",", check.names=F)
+#postenor=match(gfi_op_ba$V5, opc_ic$Tenor)
+#posdelta=match(gfi_op_ba$V1, colnames(opc_ic))
+#opc_cop_consol=opc_ic;
+#for(i in c(1:length(gfi_op_ba$V1))){
+#    opc_cop_consol[postenor[i],posdelta[i]]=max(opc_ic[postenor[i],posdelta[i]],gfi_op_ba$V3[i])
+#    I_ic=(opc_ic[postenor[i],posdelta[i]+1]==0);I_gfi=(gfi_op_ba$V4[i]==0)
+#    opc_cop_consol[postenor[i],posdelta[i]+1]=min(opc_ic[postenor[i],posdelta[i]+1]+I_ic,gfi_op_ba$V4[i]+I_gfi)-max(0,I_ic*I_gfi)
+#}
+#col_bfrr_ba=c("Tenor", "d","ATM_bid", "ATM_ask", "RR10_bid", "RR10_ask","RR25_bid", "RR25_ask","BF10_bid", "BF10_ask","BF25_bid", "BF25_ask")
+#colnames(opc_cop_consol)=col_bfrr_ba
+#colnames(opc_last)=col_bfrr_ba
+
+#print(opc_cop_consol)#Matriz consolidada con info de ICAP y GFI.
+
+#Matriz de variaciones y matriz consolidad con información del día anterior:
+#opc_cop_var=data.frame(Tenor=opc_cop_consol$Tenor, d=opc_cop_consol$d,opc_cop_consol[,-c(1,2)]-opc_last[,-c(1,2)])
+#pos0_cop=which(opc_cop_consol==0, arr.ind=T)
+
+#for(i in c(1:dim(pos0_cop)[1])){
+#opc_cop_var[pos0_cop[i,1], pos0_cop[i,2]]=NA
+#opc_cop_consol[pos0_cop[i,1], pos0_cop[i,2]]=opc_last[pos0_cop[i,1], pos0_cop[i,2]]}
+#print("VARIACIONES VOLATILIDADES USDCOP COTIZADAS", quote=F)
+#print(data.frame(opc_cop_var))
+
+#Matriz Mid BFRR:
+
+#Matriz Mid Delta:
+
+
+#Cuando las variaciones son muy sinificativas se realiza una interpolación para que los plazos intermedios no estén rezagados. 
+#if (recal_opc_cop==1){
+#  for(i in c(1:dim(pos0_cop)[1])){
+#  opc_cop_consol[pos0_cop[i,1], pos0_cop[i,2]]=approx(c(opc_cop_consol$d[pos0_cop[i-1,1]],opc_cop_consol$d[pos0_cop[i+1,1]),,)}  
+#}
+
+
+#7) IBRUVR:----------------------------------------------------------------------------------------------------------------------------------------------------
+#Si es 15 se debe republicar UVR y se acutualiza la curva
+if(as.numeric(format(fecha_ini,"%d"))==06){print("Actualizar serie UVR") }
+  
+swapiu_ic=read.table(paste0("In/Brokers/Swap_IBRUVR_ICAP_2_",fecha,".csv"), header = FALSE, sep=",")
+
+swapiu_trpos=which(tr_close$SUBYACENTE=="UVRIBR" & !is.na(tr_close$NIVEL.BID))
+swapiu_tr=data.frame(V1=tenors$ICAP[match(as.character(tr_close$FECHA.DE.LIQUIDACION[swapiu_trpos]), tenors$TRAD)], V2=0.005*(tr_close$NIVEL.BID[swapiu_trpos]+tr_close$NIVEL.ASK[swapiu_trpos]), V3=tr_close$NIVEL.BID[swapiu_trpos]/100,V4=tr_close$NIVEL.ASK[swapiu_trpos]/100)
+swapiu_trTenor=which((swapiu_tr$V4-swapiu_tr$V3)<=0.0025)#Tenor que cumplen el criterio de MAXIMO 25 Básicos
+swapiu_tr=swapiu_tr[swapiu_trTenor,]
+swapiu_trb=swapiu_tr$V3[match(swapiu_ic$V1,swapiu_tr$V1)];swapiu_trb[is.na(swapiu_trb)]=-1
+swapiu_tra=swapiu_tr$V4[match(swapiu_ic$V1,swapiu_tr$V1)];swapiu_tra[is.na(swapiu_tra)]=1
+
+swapiu_gfpos=which(gfi_quote$V4=="UVR/IBR")
+swapiu_gf=data.frame(V1=tenors$ICAP[match(as.character(gfi_quote$V8[swapiu_gfpos]), tenors$GFI)], V2=0.005*(gfi_quote$V10[swapiu_gfpos]+gfi_quote$V11[swapiu_gfpos]), V3=gfi_quote$V10[swapiu_gfpos]/100,V4=gfi_quote$V11[swapiu_gfpos]/100)
+swapiu_gfb=swapiu_gf$V3[match(swapiu_ic$V1,swapiu_gf$V1)];swapiu_gfb[is.na(swapiu_gfb)]=-1
+swapiu_gfa=swapiu_gf$V4[match(swapiu_ic$V1,swapiu_gf$V1)];swapiu_gfa[is.na(swapiu_gfa)]=1
+
+swapiu_consolb=apply(cbind(swapiu_ic$V4, swapiu_trb, swapiu_gfb),1,FUN="max")
+swapiu_consola=apply(cbind(swapiu_ic$V5, swapiu_tra, swapiu_gfa),1,FUN="min")
+swapiu_consolm=0.5*(swapiu_consolb+swapiu_consola)
+
+##swapil_consol con Bid - Offer
+swapiu_consol=data.frame(V1=swapiu_ic[,2],V2=swapiu_consolm, V3=swapiu_consolb, V4=swapiu_consola)
+#pos_close=which(swapiu_consol$V2==0)
+#swapiu_consol$V2[pos_close]=swapiu_ic[pos_close,3]
+
+pos_ant=which(swapiu_consol$V3==-1 & swapiu_consol$V4==1)
+swapiu_TM=rep("M",length(swapiu_consolm));swapiu_TM[pos_ant]="T"
+
+if(ibruvr_adjust==1){#Ajuste para cambiar los nodos teóricos de acuerdo a las variaciones de un día a otro. Se reescribe el archivo Swap_IBR_Nodos
+  pos_iu=which(ResYest$Curva=="IBRUVR")
+  swpiu_curva_ant=data.frame(V1=as.numeric(as.character(ResYest$Dias[pos_iu])),V2=as.numeric(as.character(ResYest$Mid[pos_iu])))
+  min_days_iu=100
+  swapiu_consol_adj=adjust_curve(date_ini=fecha_ini, curve_t1=data.frame(swapiu_consol[,c(1,2)],V3=swapiu_TM), curve_t0=swpiu_curva_ant, tk_st=c("ON"), min_days=min_days_iu)
+  swapiu_consol[,c(1,2)]=round(swapiu_consol_adj[,c(1,2)],5)
+}
+
+#Se recalculan Nodos ON, 1M y 3M que no son cotizados por el mercado.
+serie_uvr=read.table("In/serie_UVR.csv", header=TRUE, sep=",", colClasses="character")
+dates_uvr=as.Date(serie_uvr[,1],"%d/%m/%Y")
+val_uvr=as.numeric(serie_uvr[,2])
+#Nodo ON
+swapiu_on=((val_uvr[fecha_ini==dates_uvr]/val_uvr[(fecha_ini+1)==dates_uvr])*(1+swapi_consol[1,2]*1/baseiu)-1)*baseiu
+swapiu_consol[1,2]=swapiu_on
+#Nodo 1M
+##fecha_ref_uvr=as.Date(paste0(15,format(fecha_ini,"%m%Y")),"%d%m%Y")
+##date_uvr0=as.Date(ifelse(fecha_ini<fecha_ref_uvr,as.character(seq(fecha_ref_uvr,by="-1 month",length.out=2)[2]),as.character(fecha_ref_uvr)),"%Y-%m-%d")
+##date_uvr1=as.Date(ifelse(fecha_ini<fecha_ref_uvr,as.character(fecha_ref_uvr),as.character(seq(fecha_ref_uvr,by="1 month",length.out=2)[2])),"%Y-%m-%d")
+##val_uvr0=val_uvr[date_uvr0==dates_uvr]
+##val_uvr1=val_uvr[date_uvr1==dates_uvr]
+##swapiu_1m=((val_uvr0/val_uvr1)*(1+swapi_consol[2,2]*swapi_consol[2,1]/baseiu)-1)*baseiu/swapi_consol[2,1]
+##swapiu_consol[2,2]=swapiu_1m
+#Nodo 3M
+##tk_iu=ticket_tenor(fecha_ini,swapiu_consol$V1, tk_st=c("ON"))
+##posiu_3m=which(swapiu_consol$V3==-1 & swapiu_consol$V4==1 & tk_iu=="3M")
+##swapiu_consol[posiu_3m,2]=approx(x=swapiu_consol$V1[-posiu_3m],y=swapiu_consol$V2[-posiu_3m],xout=swapiu_consol$V1[posiu_3m])$y
+
+# pos_close=which(swapiu_consol$V3==-1 & swapiu_consol$V4==1 & swapiu_consol$V1<60)
+# swapiu_consol$V2[pos_close]=swapiu_ic$V3[pos_close]
+# 
+# tk_iu=ticket_tenor(fecha_ini,swapiu_consol$V1, tk_st=c("ON"))
+# pos_3m=which(swapiu_consol$V3==-1 & swapiu_consol$V4==1 & tk_iu=="3M")
+# swapiu_consol$V2[pos_3m]=approx(x=swapiu_consol$V1[-pos_3m],y=swapiu_consol$V2[-pos_3m],xout=swapiu_consol$V1[pos_3m])$y
+
+
+#swapiu_consol=data.frame(V1=swapiu_ic[,2],V2=swapiu_ic[,3])
+write.table(round(swapiu_consol,5),paste0("Out/PreTRM/Swap_IBRUVR_Nodos_", fecha, ".txt"), col.names=F, row.names=F)
+#inclusion a variable para base de datos
+if(any(BASE1[,"id"]=="SWAPIBRUVRN")){
+  pos_reemplazo=which(BASE1$id=="SWAPIBRUVRN")
+  number_of_rows=nrow(round(swapiu_consol,5))
+  BASE_in=data.frame(rep(as.character(fecha_ini),number_of_rows),rep("SWAPIBRUVRN",number_of_rows),round(swapiu_consol[,1,drop=F],5),rep(NA,number_of_rows),round(swapiu_consol[,-1,drop=F],5))
+  colnames(BASE_in)=c("fecha","id","Nodo","valor","mid","bid","ask")
+  BASE1[pos_reemplazo,]=data.frame(BASE_in)
+  BASE1[pos_reemplazo,"id"]="SWAPIBRUVRN"
+  BASE1[pos_reemplazo,"fecha"]=as.character(fecha_ini)
+}else{
+  number_of_rows=nrow(round(swapiu_consol,5))
+  BASE_in=data.frame(rep(as.character(fecha_ini),number_of_rows),rep("SWAPIBRUVRN",number_of_rows),round(swapiu_consol[,1,drop=F],5),rep(NA,number_of_rows),round(swapiu_consol[,-1,drop=F],5))
+  colnames(BASE_in)=c("fecha","id","Nodo","valor","mid","bid","ask")
+  BASE1=rbind(BASE1,BASE_in)
+}
+
