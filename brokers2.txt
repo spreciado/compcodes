@@ -48,9 +48,11 @@ fwd_gfw=ifelse(sum(fwd_gf$V5)>0,sum(fwd_gf$V5),1)
 if(fwd_icw==0 & fwd_trw == 0){fwd_icw=1;fwd_trw=1}
 #Curva Fwd:
 curva_gfw=fwd_gf$V2;curva_gfw[which(fwd_gf$V2!=0)]=fwd_gfw #GFI solo afecta los nodos donde presentó cotización
-fwd_mid=(fwd_ic$V2*fwd_icw+fwd_tr$V2*fwd_trw+fwd_gf$V2*fwd_gfw)/(fwd_icw+fwd_trw+curva_gfw)
-fwd_bid=apply(cbind(fwd_ic$V3,fwd_tr$V3),1,FUN="max")
-fwd_ask=apply(cbind(fwd_ic$V4,fwd_tr$V4),1,FUN="min")
+#se incluye a tradition para calcular bid y ask solo los nodos cotizados
+fwd_bid=apply(cbind(fwd_ic$V3,fwd_tr$V3,ifelse(fwd_gf$V3==0,-1000,fwd_gf$V3)),1,FUN="max")
+fwd_ask=apply(cbind(fwd_ic$V4,fwd_tr$V4,ifelse(fwd_gf$V4==0,1000,fwd_gf$V4)),1,FUN="min")
+#nuevo calculo del mid
+fwd_mid=apply(cbind(fwd_bid,fwd_ask),1,FUN="mean")
 fwd_consol=round(data.frame(V1=fwd_ic$V1,V2=fwd_mid,V3=fwd_bid,V4=fwd_ask),2)
 res_fwd=data.frame(fwd_consol,fwd_ic$V2,fwd_tr$V2,fwd_gf$V2);colnames(res_fwd)=c("DAYS","LAST", "BID", "ASK", "ICAP", "TRAD", "GFI")
 write.table(fwd_consol[fwd_consol$V1<fwdval,],"In/Fwd_USDCOP_In.txt", col.names=F, row.names=F)
